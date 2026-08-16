@@ -1,4 +1,5 @@
 import "dotenv/config";
+
 import {
   Client,
   Events,
@@ -8,8 +9,12 @@ import {
 
 const { DISCORD_TOKEN, WEBHOOK_URL } = process.env;
 
-if (!DISCORD_TOKEN || !WEBHOOK_URL) {
-  throw new Error("DISCORD_TOKEN eller WEBHOOK_URL saknas.");
+if (!DISCORD_TOKEN) {
+  throw new Error("DISCORD_TOKEN saknas.");
+}
+
+if (!WEBHOOK_URL) {
+  throw new Error("WEBHOOK_URL saknas.");
 }
 
 const client = new Client({
@@ -20,7 +25,7 @@ const client = new Client({
 });
 
 const webhook = new WebhookClient({
-  url: WEBHOOK_URL
+  url: WEBHOOK_URL.trim()
 });
 
 client.once(Events.ClientReady, readyClient => {
@@ -28,20 +33,35 @@ client.once(Events.ClientReady, readyClient => {
 });
 
 client.on(Events.GuildMemberAdd, async member => {
+  // Skicka inget välkomstmeddelande till andra bottar
   if (member.user.bot) return;
 
   try {
     await webhook.send({
       content:
-        `🐣 <@${member.id}> har precis kläckts in i Chainsaw Disco – ` +
-        `välkommen till galenskapen! 🪚🪩`,
+        `🐣 <@${member.id}> har precis kläckts in i ` +
+        `Chainsaw Disco – välkommen till galenskapen! 🪚🪩`,
+
       allowedMentions: {
         users: [member.id]
       }
     });
+
+    console.log(`Välkomstmeddelande skickat för ${member.user.tag}`);
   } catch (error) {
-    console.error("Kunde inte skicka välkomstmeddelandet:", error);
+    console.error(
+      `Kunde inte välkomna ${member.user.tag}:`,
+      error
+    );
   }
 });
 
-client.login(DISCORD_TOKEN);
+client.on(Events.Error, error => {
+  console.error("Discord-klientfel:", error);
+});
+
+process.on("unhandledRejection", error => {
+  console.error("Ohanterat fel:", error);
+});
+
+client.login(DISCORD_TOKEN.trim());
