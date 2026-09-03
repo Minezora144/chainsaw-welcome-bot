@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "check": "node --check index.js",
     "start": "node index.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": "22.x"
   },
   "dependencies": {
     "discord.js": "^14.27.0",
