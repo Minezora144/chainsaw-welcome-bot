@@ -54,6 +54,7 @@ Kör lokalt:
 ```bash
 npm ci
 npm run check
+npm test
 ```
 
 Efter en Railway-deployment ska loggen innehålla ungefär:
@@ -65,6 +66,16 @@ Efter en Railway-deployment ska loggen innehålla ungefär:
 
 Testa därefter med ett vanligt användarkonto som går med i servern. Bottar
 ignoreras avsiktligt.
+
+### Test utan ett extra konto
+
+Efter varje start registrerar boten serverkommandot `/testwelcome`. Kommandot
+visas endast för serveradministratörer, och administratörsrätten kontrolleras
+även när kommandot körs.
+
+Kör `/testwelcome` i valfri kanal på servern. Boten skickar då samma
+välkomstmeddelande till den konfigurerade välkomstkanalen och ger dig en privat
+bekräftelse. Testmeddelandet nämner administratören som körde kommandot.
 
 ## Stäng av Vercel-deployments
 

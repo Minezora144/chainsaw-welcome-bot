@@ -4,8 +4,16 @@ import {
   Client,
   Events,
   GatewayIntentBits,
+  MessageFlags,
   PermissionFlagsBits
 } from "discord.js";
+
+import {
+  buildWelcomeMessage,
+  canRunTestWelcome,
+  TEST_WELCOME_COMMAND_NAME,
+  testWelcomeCommand
+} from "./bot-config.js";
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN?.trim();
 const WELCOME_CHANNEL_ID = process.env.WELCOME_CHANNEL_ID?.trim();
@@ -71,7 +79,31 @@ function validateWelcomeChannel(guild) {
   return channel;
 }
 
-client.once(Events.ClientReady, readyClient => {
+async function sendWelcomeMessage(member) {
+  const channel = validateWelcomeChannel(member.guild);
+
+  await channel.send(buildWelcomeMessage(member.id));
+
+  return channel;
+}
+
+async function registerTestWelcomeCommand(guild) {
+  const commands = await guild.commands.fetch();
+  const existingCommand = commands.find(
+    command => command.name === TEST_WELCOME_COMMAND_NAME
+  );
+  const commandData = testWelcomeCommand.toJSON();
+
+  if (existingCommand) {
+    await guild.commands.edit(existingCommand.id, commandData);
+    return "uppdaterat";
+  }
+
+  await guild.commands.create(commandData);
+  return "registrerat";
+}
+
+client.once(Events.ClientReady, async readyClient => {
   console.log(
     `[startup] Chainsaw Disco är online som ${readyClient.user.tag}`
   );
@@ -85,6 +117,18 @@ client.once(Events.ClientReady, readyClient => {
     } catch (error) {
       console.error("[startup] Kanalinställningen är ogiltig:", error);
     }
+
+    try {
+      const result = await registerTestWelcomeCommand(guild);
+      console.log(
+        `[startup] /${TEST_WELCOME_COMMAND_NAME} ${result} för ${guild.name}`
+      );
+    } catch (error) {
+      console.error(
+        `[startup] Kunde inte registrera /${TEST_WELCOME_COMMAND_NAME} för ${guild.name}:`,
+        error
+      );
+    }
   }
 });
 
@@ -93,17 +137,7 @@ client.on(Events.GuildMemberAdd, async member => {
   if (member.user.bot) return;
 
   try {
-    const channel = validateWelcomeChannel(member.guild);
-
-    await channel.send({
-      content:
-        `🐣 <@${member.id}> har precis kläckts in i ` +
-        `Chainsaw Disco – välkommen till galenskapen! 🪚🪩`,
-
-      allowedMentions: {
-        users: [member.id]
-      }
-    });
+    await sendWelcomeMessage(member);
 
     console.log(
       `[welcome] Välkomstmeddelande skickat för ${member.user.tag}`
@@ -114,6 +148,74 @@ client.on(Events.GuildMemberAdd, async member => {
       error
     );
   }
+});
+
+async function replyWithTestError(interaction) {
+  const content =
+    "Testet misslyckades. Kontrollera botens Railway-logg för orsaken.";
+
+  try {
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply(content);
+    } else {
+      await interaction.reply({
+        content,
+        flags: MessageFlags.Ephemeral
+      });
+    }
+  } catch (error) {
+    console.error("[testwelcome] Kunde inte svara på kommandot:", error);
+  }
+}
+
+async function handleTestWelcomeCommand(interaction) {
+  try {
+    if (!interaction.inGuild() || !interaction.guild) {
+      await interaction.reply({
+        content: "Kommandot kan bara användas på en server.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    if (!canRunTestWelcome(interaction.memberPermissions)) {
+      await interaction.reply({
+        content: "Du måste vara serveradministratör för att köra kommandot.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const member = await interaction.guild.members.fetch(interaction.user.id);
+    const channel = await sendWelcomeMessage(member);
+
+    await interaction.editReply(
+      `Testmeddelandet skickades till <#${channel.id}>.`
+    );
+
+    console.log(
+      `[testwelcome] ${interaction.user.tag} testade i #${channel.name}`
+    );
+  } catch (error) {
+    console.error(
+      `[testwelcome] Testet misslyckades för ${interaction.user.tag}:`,
+      error
+    );
+    await replyWithTestError(interaction);
+  }
+}
+
+client.on(Events.InteractionCreate, interaction => {
+  if (
+    !interaction.isChatInputCommand() ||
+    interaction.commandName !== TEST_WELCOME_COMMAND_NAME
+  ) {
+    return;
+  }
+
+  void handleTestWelcomeCommand(interaction);
 });
 
 client.on(Events.Error, error => {
