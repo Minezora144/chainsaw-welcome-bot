@@ -3,6 +3,6 @@ WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
-COPY --chown=node:node index.js ./index.js
+COPY --chown=node:node *.js ./
 USER node
 CMD ["node", "index.js"]
