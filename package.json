@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check index.js && node --check bot-config.js",
+    "check": "node --check index.js && node --check bot-config.js && node --check server-audit.js",
     "test": "node --test",
     "start": "node index.js"
   },
