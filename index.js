@@ -1,6 +1,7 @@
 import "dotenv/config";
 
 import {
+  AttachmentBuilder,
   Client,
   Events,
   GatewayIntentBits,
@@ -14,6 +15,14 @@ import {
   TEST_WELCOME_COMMAND_NAME,
   testWelcomeCommand
 } from "./bot-config.js";
+
+import {
+  buildServerAuditSnapshot,
+  canRunServerAudit,
+  SERVER_AUDIT_COMMAND_NAME,
+  serverAuditCommand,
+  serverAuditFilename
+} from "./server-audit.js";
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN?.trim();
 const WELCOME_CHANNEL_ID = process.env.WELCOME_CHANNEL_ID?.trim();
@@ -87,12 +96,12 @@ async function sendWelcomeMessage(member) {
   return channel;
 }
 
-async function registerTestWelcomeCommand(guild) {
+async function registerGuildCommand(guild, commandName, commandBuilder) {
   const commands = await guild.commands.fetch();
   const existingCommand = commands.find(
-    command => command.name === TEST_WELCOME_COMMAND_NAME
+    command => command.name === commandName
   );
-  const commandData = testWelcomeCommand.toJSON();
+  const commandData = commandBuilder.toJSON();
 
   if (existingCommand) {
     await guild.commands.edit(existingCommand.id, commandData);
@@ -118,16 +127,25 @@ client.once(Events.ClientReady, async readyClient => {
       console.error("[startup] Kanalinställningen är ogiltig:", error);
     }
 
-    try {
-      const result = await registerTestWelcomeCommand(guild);
-      console.log(
-        `[startup] /${TEST_WELCOME_COMMAND_NAME} ${result} för ${guild.name}`
-      );
-    } catch (error) {
-      console.error(
-        `[startup] Kunde inte registrera /${TEST_WELCOME_COMMAND_NAME} för ${guild.name}:`,
-        error
-      );
+    for (const [commandName, commandBuilder] of [
+      [TEST_WELCOME_COMMAND_NAME, testWelcomeCommand],
+      [SERVER_AUDIT_COMMAND_NAME, serverAuditCommand]
+    ]) {
+      try {
+        const result = await registerGuildCommand(
+          guild,
+          commandName,
+          commandBuilder
+        );
+        console.log(
+          `[startup] /${commandName} ${result} för ${guild.name}`
+        );
+      } catch (error) {
+        console.error(
+          `[startup] Kunde inte registrera /${commandName} för ${guild.name}:`,
+          error
+        );
+      }
     }
   }
 });
@@ -150,10 +168,7 @@ client.on(Events.GuildMemberAdd, async member => {
   }
 });
 
-async function replyWithTestError(interaction) {
-  const content =
-    "Testet misslyckades. Kontrollera botens Railway-logg för orsaken.";
-
+async function replyWithCommandError(interaction, logPrefix, content) {
   try {
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(content);
@@ -164,7 +179,7 @@ async function replyWithTestError(interaction) {
       });
     }
   } catch (error) {
-    console.error("[testwelcome] Kunde inte svara på kommandot:", error);
+    console.error(`[${logPrefix}] Kunde inte svara på kommandot:`, error);
   }
 }
 
@@ -203,19 +218,74 @@ async function handleTestWelcomeCommand(interaction) {
       `[testwelcome] Testet misslyckades för ${interaction.user.tag}:`,
       error
     );
-    await replyWithTestError(interaction);
+    await replyWithCommandError(
+      interaction,
+      "testwelcome",
+      "Testet misslyckades. Kontrollera botens Railway-logg för orsaken."
+    );
+  }
+}
+
+async function handleServerAuditCommand(interaction) {
+  try {
+    if (!interaction.inGuild() || !interaction.guild) {
+      await interaction.reply({
+        content: "Kommandot kan bara användas på en server.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    if (!canRunServerAudit(interaction.memberPermissions)) {
+      await interaction.reply({
+        content: "Du måste vara serveradministratör för att köra kommandot.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const snapshot = await buildServerAuditSnapshot(interaction.guild);
+    const json = JSON.stringify(snapshot, null, 2);
+    const attachment = new AttachmentBuilder(Buffer.from(json, "utf8"), {
+      name: serverAuditFilename(interaction.guild.id)
+    });
+
+    await interaction.editReply({
+      content:
+        "Read-only serveraudit klar. Filen innehåller serverstruktur, roller och permission overrides – inga meddelanden, medlemslistor eller hemligheter. Skicka JSON-filen till ChatGPT för analys.",
+      files: [attachment]
+    });
+
+    console.log(
+      `[serveraudit] ${interaction.user.tag} exporterade ${interaction.guild.name}: ` +
+      `${snapshot.roles.length} roller, ${snapshot.channels.length} kanaler`
+    );
+  } catch (error) {
+    console.error(
+      `[serveraudit] Exporten misslyckades för ${interaction.user.tag}:`,
+      error
+    );
+    await replyWithCommandError(
+      interaction,
+      "serveraudit",
+      "Serverauditen misslyckades. Kontrollera botens Railway-logg för orsaken."
+    );
   }
 }
 
 client.on(Events.InteractionCreate, interaction => {
-  if (
-    !interaction.isChatInputCommand() ||
-    interaction.commandName !== TEST_WELCOME_COMMAND_NAME
-  ) {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === TEST_WELCOME_COMMAND_NAME) {
+    void handleTestWelcomeCommand(interaction);
     return;
   }
 
-  void handleTestWelcomeCommand(interaction);
+  if (interaction.commandName === SERVER_AUDIT_COMMAND_NAME) {
+    void handleServerAuditCommand(interaction);
+  }
 });
 
 client.on(Events.Error, error => {
